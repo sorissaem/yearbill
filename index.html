@@ -44,12 +44,14 @@
             margin: 0 auto;
             box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.15);
             position: relative;
-            padding: 2rem;
+            /* 여백 수정: 하단을 넉넉하게 4rem(약 64px)으로 늘림 */
+            padding: 2rem 2rem 4rem 2rem;
             /* 종이 질감 */
             background-image: 
                 linear-gradient(90deg, transparent 50%, rgba(200,200,200,.05) 50%),
                 linear-gradient(0deg, transparent 0%, rgba(0,0,0,0.02) 50%);
-            background-size: 4px 4px; 
+            background-size: 4px 4px;
+            background-repeat: repeat; /* 배경 반복 명시 */
             margin-bottom: 50px;
         }
 
@@ -158,13 +160,15 @@
             <span class="text-gray-300 text-xs bg-gray-100 px-2 py-1 rounded">@sorissaem</span>
         </div>
 
-        <div class="flex-grow w-full overflow-y-auto custom-scroll flex justify-center pb-10">
-            <div id="captureArea" class="receipt-container receipt-font text-gray-800 flex flex-col">
+        <div class="flex-grow w-full overflow-y-auto custom-scroll flex justify-center items-start pb-10">
+            <!-- h-fit 추가하여 내용만큼 늘어나게 함 -->
+            <div id="captureArea" class="receipt-container h-fit receipt-font text-gray-800 flex flex-col">
                 <div class="jagged-top"></div>
                 
                 <!-- 영수증 헤더 -->
                 <div class="text-center mb-1 pb-0 relative">
-                    <div class="text-2xl font-black tracking-widest mb-2 text-gray-900">[ <span class="current-year-text"></span>년 결산 영수증 ]</div>
+                    <!-- whitespace-nowrap 추가로 줄바꿈 방지 -->
+                    <div class="text-xl sm:text-2xl font-black tracking-widest mb-2 text-gray-900 whitespace-nowrap">[ <span class="current-year-text"></span>년 결산 영수증 ]</div>
                     <div class="text-[11px] font-bold text-gray-500 mb-6">소중한 1년이 정상적으로 기록되었습니다.</div>
                     
                     <div class="flex justify-between text-xs font-bold px-1 text-gray-600 mb-1 w-full">
@@ -174,7 +178,7 @@
                 </div>
 
                 <!-- 영수증 리스트 -->
-                <div class="flex-grow pb-6"> <!-- 여백 pb-6 추가됨 -->
+                <div class="flex-grow pb-6"> 
                     <div class="flex justify-between text-[11px] font-black border-b-2 border-black pb-2 mb-3 px-1 text-gray-700 mt-0">
                         <span class="w-[45%]">품목 (주제)</span>
                         <span class="w-[55%] text-right">상세 내역 (기억)</span>
@@ -453,7 +457,7 @@
             });
         }
 
-        // --- ★ 수정됨: 링크 공유 기능 (단축 URL 적용) ---
+        // --- ★ 링크 공유 기능 (단축 URL 적용) ---
         async function shareLink() {
             const shareUrl = "https://bit.ly/yearbill"; // 요청하신 단축 URL
 
@@ -473,7 +477,6 @@
             } else {
                 // PC 등 지원하지 않을 경우 클립보드 복사
                 try {
-                    // 구형 브라우저/iframe 호환성을 위해 execCommand 사용 고려
                     const textArea = document.createElement("textarea");
                     textArea.value = shareUrl;
                     document.body.appendChild(textArea);
