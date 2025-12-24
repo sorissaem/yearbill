@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>연말 기억 영수증</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HTML to Canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- Barcode Generator -->
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* 폰트 설정 */
+        @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Noto+Sans+KR:wght@300;400;700;900&display=swap');
+        
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f3f4f6; }
+        .receipt-font { font-family: 'Gowun Dodum', sans-serif; }
+
+        /* 애니메이션 */
+        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .bounce { animation: bounce 2s infinite; }
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+        .print-animation {
+            animation: printOutput 3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+            transform-origin: top center;
+        }
+        @keyframes printOutput {
+            0% { opacity: 0; transform: translateY(-150px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 영수증 디자인 */
+        .receipt-container {
+            width: 380px;
+            max-width: 90vw;
+            min-height: 700px;
+            background-color: #fff;
+            margin: 0 auto;
+            box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.15);
+            position: relative;
+            padding: 2rem;
+            /* 종이 질감 */
+            background-image: 
+                linear-gradient(90deg, transparent 50%, rgba(200,200,200,.05) 50%),
+                linear-gradient(0deg, transparent 0%, rgba(0,0,0,0.02) 50%);
+            background-size: 4px 4px; 
+            margin-bottom: 50px;
+        }
+
+        /* 찢어진 종이 효과 (상/하단) */
+        .jagged-top, .jagged-bottom {
+            position: absolute; left: 0; width: 100%; height: 15px;
+            background-repeat: repeat-x; background-size: 20px 20px;
+        }
+        .jagged-top {
+            top: -15px;
+            background: linear-gradient(135deg, transparent 50%, #fff 50%), linear-gradient(225deg, transparent 50%, #fff 50%);
+            filter: drop-shadow(0px -2px 2px rgba(0,0,0,0.05)); 
+        }
+        .jagged-bottom {
+            bottom: -15px;
+            background: linear-gradient(45deg, transparent 50%, #fff 50%), linear-gradient(-45deg, transparent 50%, #fff 50%);
+            filter: drop-shadow(0px 5px 5px rgba(0,0,0,0.1));
+        }
+
+        /* 바코드 컨테이너 */
+        .barcode {
+            width: 100%; 
+            margin-top: 15px; 
+            opacity: 0.9; 
+            display: flex;
+            justify-content: center;
+        }
+
+        /* ★ 결제완료 도장 컨테이너 (SVG용) ★ */
+        .stamp-container {
+            position: absolute; 
+            top: 0px; 
+            left: 210px; /* 요청하신 위치 */
+            width: 90px;
+            height: 36px;
+            
+            transform: rotate(-12deg);
+            opacity: 0.8; 
+            pointer-events: none; 
+            mix-blend-mode: multiply;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- ■ 1. 입력 화면 (INPUT SCREEN) ■ -->
+    <div id="inputScreen" class="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col h-[90vh] fade-in relative border border-gray-200">
+        
+        <div class="absolute top-3 right-4 text-[10px] text-gray-400 font-light z-20">
+            @sorissaem
+        </div>
+
+        <div class="bg-gray-900 text-white p-6 flex-shrink-0">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <i class="fas fa-pen-nib text-yellow-400"></i> <span class="current-year-text"></span> 기억 영수증
+            </h1>
+            <p class="text-xs text-gray-400 mt-1 opacity-80">12개의 질문으로 1년을 정산해보세요.</p>
+        </div>
+
+        <div class="flex-grow overflow-y-auto p-6 bg-gray-50">
+            <div class="mb-6 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                <label class="block text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">발급자 (이름)</label>
+                <input type="text" id="issuerName" class="w-full bg-white border-2 border-gray-200 rounded-lg p-3 text-sm focus:border-[#2C405E] focus:outline-none transition font-bold text-gray-800" placeholder="이름을 입력하세요">
+            </div>
+            <!-- 입력 필드 생성 영역 -->
+            <div id="inputContainer" class="space-y-4"></div>
+            
+            <div class="mt-8 text-center pb-4 text-gray-400 text-xs">
+                 12개를 다 채우지 않아도 괜찮아요.<br>비워두면 영수증에 출력되지 않습니다.
+            </div>
+        </div>
+
+        <div class="p-4 border-t bg-white flex-shrink-0">
+            <!-- 저장 버튼: Regatta -->
+            <button onclick="startIssueProcess()" class="w-full bg-[#2C405E] text-white py-4 rounded-xl font-bold hover:bg-[#1f2333] transition shadow-lg flex justify-center items-center gap-2 text-lg transform active:scale-95 duration-100">
+                <span>🧾 영수증 발급하기</span> 
+            </button>
+        </div>
+    </div>
+
+
+    <!-- ■ 2. 로딩 화면 (LOADING SCREEN) ■ -->
+    <div id="loadingScreen" class="hidden fixed inset-0 bg-[#2C405E] z-50 flex-col items-center justify-center text-white text-center p-8">
+        <div class="text-6xl mb-6 bounce">⏳</div>
+        <h2 class="text-2xl font-bold mb-4">영수증 발급 중...</h2>
+        <div class="space-y-2 text-gray-300 text-sm font-light">
+            <!-- 체크/막대: Soft Green -->
+            <p><i class="fas fa-check text-[#4ADE80] mr-2"></i>기억 데이터 수집 중...</p>
+            <p id="loadingMsg2" class="opacity-0 transition-opacity duration-500"><i class="fas fa-check text-[#4ADE80] mr-2"></i>추억 정산 처리 중...</p>
+            <p id="loadingMsg3" class="opacity-0 transition-opacity duration-1000"><i class="fas fa-check text-[#4ADE80] mr-2"></i><span class="current-year-text"></span>년 결제 승인...</p>
+        </div>
+        <div class="mt-8 w-64 bg-gray-600 rounded-full h-2 overflow-hidden mx-auto">
+            <div id="progressBar" class="bg-[#4ADE80] h-full w-0 transition-all duration-[4000ms] ease-out"></div>
+        </div>
+    </div>
+
+
+    <!-- ■ 3. 결과 화면 (RESULT SCREEN) ■ -->
+    <div id="resultScreen" class="hidden w-full max-w-lg h-[90vh] flex-col items-center fade-in">
+        
+        <div class="w-full flex justify-between items-center mb-4 px-2">
+            <button onclick="goBack()" class="text-[#2C405E] font-bold text-sm bg-white px-4 py-2 rounded-full shadow-sm hover:bg-gray-100 transition">
+                <i class="fas fa-arrow-left mr-1"></i> 수정하기
+            </button>
+            <span class="text-gray-300 text-xs bg-gray-100 px-2 py-1 rounded">@sorissaem</span>
+        </div>
+
+        <div class="flex-grow w-full overflow-y-auto custom-scroll flex justify-center pb-10">
+            <div id="captureArea" class="receipt-container receipt-font text-gray-800 flex flex-col">
+                <div class="jagged-top"></div>
+                
+                <!-- 영수증 헤더 -->
+                <div class="text-center mb-1 pb-0 relative">
+                    <div class="text-2xl font-black tracking-widest mb-2 text-gray-900">[ <span class="current-year-text"></span>년 결산 영수증 ]</div>
+                    <div class="text-[11px] font-bold text-gray-500 mb-6">소중한 1년이 정상적으로 기록되었습니다.</div>
+                    
+                    <div class="flex justify-between text-xs font-bold px-1 text-gray-600 mb-1 w-full">
+                        <span class="text-left">고객명: <span id="viewName" class="text-black text-sm"></span></span>
+                        <span class="text-right">발행일: <span id="receiptDate"></span></span>
+                    </div>
+                </div>
+
+                <!-- 영수증 리스트 -->
+                <div class="flex-grow pb-6"> <!-- 여백 pb-6 추가됨 -->
+                    <div class="flex justify-between text-[11px] font-black border-b-2 border-black pb-2 mb-3 px-1 text-gray-700 mt-0">
+                        <span class="w-[45%]">품목 (주제)</span>
+                        <span class="w-[55%] text-right">상세 내역 (기억)</span>
+                    </div>
+                    <div id="receiptList" class="space-y-3 text-sm px-1"></div>
+                </div>
+
+                <!-- 영수증 푸터 -->
+                <div class="mt-auto border-t-2 border-dashed border-gray-300 pt-5 text-center relative">
+                    <div class="flex justify-between text-lg font-black mb-8 px-1 relative z-0">
+                        <span>총 기억 합계</span>
+                        <span><span id="totalCount">0</span> 건</span>
+
+                        <!-- ★ SVG 도장 (완전 고정형, 연한 핑크 배경 포함) ★ -->
+                        <div class="stamp-container">
+                            <svg width="100%" height="100%" viewBox="0 0 90 36" xmlns="http://www.w3.org/2000/svg">
+                                <!-- 테두리 및 배경 -->
+                                <rect x="2" y="2" width="86" height="32" rx="4" ry="4" 
+                                      fill="rgba(220, 38, 38, 0.05)" stroke="#dc2626" stroke-width="2.5" />
+                                <!-- 텍스트 (Noto Sans KR, Black Weight) -->
+                                <text x="50%" y="55%" 
+                                      dominant-baseline="middle" text-anchor="middle" 
+                                      fill="#dc2626" font-family="'Noto Sans KR', sans-serif" 
+                                      font-weight="900" font-size="15">결제완료</text>
+                            </svg>
+                        </div>
+                    </div>
+
+                    <div class="mb-5 px-4">
+                        <p id="quoteArea" class="text-xs text-gray-600 leading-relaxed font-bold break-keep"></p>
+                    </div>
+                    <div class="text-[9px] text-gray-400 tracking-tight leading-relaxed">
+                        * 이미 사용하신 <span class="current-year-text"></span>년은 반품이 불가합니다.<br>
+                        * 고객님의 소중한 추억은 영구 보관됩니다.
+                    </div>
+                    
+                    <!-- 바코드 -->
+                    <div class="barcode flex justify-center items-center">
+                        <svg id="barcodeSVG"></svg>
+                    </div>
+                    <div class="text-[12px] font-mono font-bold tracking-[0.1em] mt-1 text-gray-700">
+                        🎉 HAPPY NEW YEAR ✨
+                    </div>
+                </div>
+                <div class="jagged-bottom"></div>
+            </div>
+        </div>
+
+        <div class="w-full p-4 flex gap-3">
+            <!-- 저장하기: Regatta (#2C405E) -->
+            <button onclick="downloadImage()" class="flex-1 bg-[#2C405E] text-white py-4 rounded-xl font-bold hover:bg-[#1f2333] transition shadow-lg flex justify-center items-center gap-2 text-lg transform active:scale-95 duration-200">
+                <i class="fas fa-save"></i> <span>저장하기</span>
+            </button>
+            <!-- 링크 공유하기: Fresh Yellow (#FACC15) -->
+            <button onclick="shareLink()" class="flex-1 bg-[#FACC15] text-gray-900 py-4 rounded-xl font-bold hover:bg-[#EAB308] transition shadow-lg flex justify-center items-center gap-2 text-lg transform active:scale-95 duration-200">
+                <i class="fas fa-link"></i> <span>링크 공유</span>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- 설정 및 데이터 ---
+        const THIS_YEAR = new Date().getFullYear();
+        const NEXT_YEAR = THIS_YEAR + 1;
+
+        const categories = [
+            { label: "--- PART 1. 취향과 즐거움 ---", value: "" },
+            { label: "🎵 [음악] 올해의 노동요 (BGM)", value: "🎵 올해의 노래" },
+            { label: "📺 [영상] 올해의 영상 (유튜브/넷플릭스)", value: "📺 올해의 영상" },
+            { label: "🍔 [음식] 올해의 메뉴 (급식/배달)", value: "🍔 올해의 메뉴" },
+            { label: "🎮 [게임] 올해의 게임 (플레이타임 1위)", value: "🎮 올해의 게임" },
+            { label: "💘 [덕질] 올해의 최애 (아이돌/캐릭터)", value: "💘 올해의 최애" },
+            { label: "👗 [패션] 올해의 OOTD", value: "👗 올해의 OOTD" },
+            { label: "--- PART 2. 일상의 데이터 ---", value: "" },
+            { label: "📍 [장소] 올해의 핫플레이스", value: "📍 올해의 핫플" },
+            { label: "💸 [소비] 올해의 지름신 (잘 산 물건)", value: "💸 올해의 지름신" },
+            { label: "🤦‍♀️ [후회] 올해의 낭비 (돈 아까워)", value: "🤦‍♀️ 올해의 낭비" },
+            { label: "🔍 [검색] 올해의 최다 검색어", value: "🔍 최다 검색어" },
+            { label: "🗣️ [언어] 올해의 유행어 (내 입버릇)", value: "🗣️ 나의 유행어" },
+            { label: "🫠 [표정] 올해의 이모지 (Emoji)", value: "🫠 올해의 이모지" },
+            { label: "--- PART 3. 기억의 장면들 ---", value: "" },
+            { label: "⏳ [시간] 올해의 순삭 타임 (몰입)", value: "⏳ 순삭된 시간" },
+            { label: "🤣 [웃음] 올해의 박장대소", value: "🤣 박장대소" },
+            { label: "🏞️ [풍경] 올해의 명장면", value: "🏞️ 올해의 풍경" },
+            { label: "🦶 [흑역사] 올해의 이불킥", value: "🦶 이불킥 순간" },
+            { label: "🍀 [경험] 올해의 새옹지마 (오히려 좋아)", value: "🍀 오히려 좋아" },
+            { label: "--- PART 4. 사람과 온기 ---", value: "" },
+            { label: "🦸‍♀️ [인물] 올해의 귀인 (고마운 사람)", value: "🦸‍♀️ 올해의 귀인" },
+            { label: "🤝 [인연] 올해의 소중한 만남", value: "🤝 소중한 만남" },
+            { label: "💊 [위로] 올해의 한 마디 (말/가사)", value: "💊 나를 살린 말" },
+            { label: "💌 [감사] 전하고 싶은 진심", value: "💌 꼭 전하고 싶은 말" },
+            { label: "--- PART 5. 성장과 나 ---", value: "" },
+            { label: "📚 [독서] 올해의 책/문장", value: "📚 올해의 문장" },
+            { label: "💯 [공부] 올해의 학업 성취", value: "💯 학업 성취" },
+            { label: "🔥 [도전] 올해의 용기 (새로운 시도)", value: "🔥 올해의 도전" },
+            { label: "✨ [능력] 올해의 재능 발견", value: "✨ 숨겨진 재능" },
+            { label: "🦋 [변화] 올해의 달라진 점", value: "🦋 달라진 내 모습" },
+            { label: "👏 [칭찬] 올해의 멋진 나", value: "👏 아주 칭찬해" },
+            { label: "--- PART 6. 다음 챕터 ---", value: "" },
+            { label: "☃️ [설렘] 다가올 겨울방학 계획", value: "☃️ 겨울방학 계획" },
+            { label: `🎯 [목표] ${NEXT_YEAR}년 핵심 목표`, value: `🎯 ${NEXT_YEAR}년 목표` },
+            { label: "📮 [편지] 미래의 나에게 한 마디", value: "📮 미래의 나에게" }
+        ];
+
+        // 동적 명언 (년도 반영)
+        const quotes = [
+            `"기억하지 않으면 시간은 사라지지만,\n기록하면 영원이 된다."`,
+            `"너의 ${THIS_YEAR}년, 참 애썼다.\n${NEXT_YEAR}년은 더 눈부실 거야."`,
+            `"지나간 시간은 추억이고,\n다가올 시간은 선물이다."`,
+            `"가장 좋은 날은 아직 오지 않았다.\n너의 ${NEXT_YEAR}년을 기대해."`,
+            `"너라는 책의 ${THIS_YEAR}년 챕터,\n해피엔딩으로 결제 완료."`,
+            `"흔들리지 않고 피는 꽃이 어디 있으랴.\n잘 자랐다, 너라는 꽃."`,
+            `"오늘을 기억해,\n우리는 서로의 용기였으니까."`,
+            `"오지 않은 날들을 기쁘게 맞이하는 것이\n지난날에 대한 예의다."`,
+            `"너의 모든 계절이 아름다웠다.\n다가올 봄도 그럴 것이다."`,
+            `"이 영수증은 환불 불가.\n대신 '희망'으로 교환해 드립니다."`,
+            `"별처럼 빛나던 순간들이 모여\n너라는 우주가 되었다."`,
+            `"${THIS_YEAR}년 결산 완료.\n당신의 찬란한 ${NEXT_YEAR}년을 응원합니다."`,
+            `"모든 순간이 너였다.\n반짝였던 너의 ${THIS_YEAR}년."`,
+            `"끝은 또 다른 시작의 이름이다.\n멋진 여행을 계속하자."`,
+            `"안녕은 영원한 헤어짐이 아니겠지요.\n다시 만나자, 나의 ${NEXT_YEAR}."`
+        ];
+
+        // --- 초기화 ---
+        window.onload = function() {
+            updateYears();
+            createInputFields();
+        };
+
+        // --- 함수 정의 ---
+        function createInputFields() {
+            const container = document.getElementById('inputContainer');
+            for (let i = 1; i <= 12; i++) {
+                const div = document.createElement('div');
+                div.className = "bg-white p-4 rounded-xl border-2 border-transparent hover:border-[#2C405E] transition-all duration-200 shadow-sm";
+                
+                let optionsHtml = `<option value="">주제를 선택하세요.</option>`;
+                categories.forEach(cat => {
+                    if(cat.value === "") {
+                        optionsHtml += `<option disabled class="bg-gray-100 text-gray-500">── ${cat.label.replace(/-/g, '')} ──</option>`;
+                    } else {
+                        optionsHtml += `<option value="${cat.value}">${cat.label}</option>`;
+                    }
+                });
+
+                div.innerHTML = `
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="bg-[#2C405E] text-white text-[12px] font-bold px-2 py-1 rounded-full w-8 text-center flex-shrink-0">#${i}</span>
+                        <select id="topic${i}" class="flex-grow bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                    <input type="text" id="desc${i}" class="w-full bg-[#f3f4f6] border border-gray-200 rounded p-2 text-sm outline-none focus:bg-white focus:border-[#2C405E] transition placeholder-gray-400" placeholder="내용을 입력하세요">
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        function updateYears() {
+            document.title = `${THIS_YEAR} 연말 기억 영수증`;
+            const currentYearSpans = document.querySelectorAll('.current-year-text');
+            currentYearSpans.forEach(span => span.innerText = THIS_YEAR);
+            const nextYearSpans = document.querySelectorAll('.next-year-text');
+            nextYearSpans.forEach(span => span.innerText = NEXT_YEAR);
+        }
+
+        function startIssueProcess() {
+            document.getElementById('inputScreen').classList.add('hidden');
+            document.getElementById('loadingScreen').classList.remove('hidden');
+            document.getElementById('loadingScreen').classList.add('flex');
+
+            setTimeout(() => { document.getElementById('progressBar').style.width = '100%'; }, 100);
+            setTimeout(() => { document.getElementById('loadingMsg2').classList.remove('opacity-0'); }, 1200);
+            setTimeout(() => { document.getElementById('loadingMsg3').classList.remove('opacity-0'); }, 2500);
+
+            generateReceiptData();
+
+            setTimeout(() => {
+                document.getElementById('loadingScreen').classList.add('hidden');
+                document.getElementById('loadingScreen').classList.remove('flex');
+                document.getElementById('resultScreen').classList.remove('hidden');
+                document.getElementById('resultScreen').classList.add('flex');
+                
+                const captureArea = document.getElementById('captureArea');
+                captureArea.classList.remove('print-animation');
+                void captureArea.offsetWidth;
+                captureArea.classList.add('print-animation');
+            }, 4000);
+        }
+
+        function goBack() {
+            document.getElementById('resultScreen').classList.add('hidden');
+            document.getElementById('resultScreen').classList.remove('flex');
+            document.getElementById('inputScreen').classList.remove('hidden');
+            
+            document.getElementById('progressBar').style.width = '0';
+            document.getElementById('loadingMsg2').classList.add('opacity-0');
+            document.getElementById('loadingMsg3').classList.add('opacity-0');
+            document.getElementById('captureArea').classList.remove('print-animation');
+        }
+
+        function generateReceiptData() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            
+            document.getElementById('receiptDate').innerText = `${year}.${month}.${day}`;
+
+            const name = document.getElementById('issuerName').value;
+            document.getElementById('viewName').innerText = name ? name : "GUEST";
+
+            const randomIndex = Math.floor(Math.random() * quotes.length);
+            document.getElementById('quoteArea').innerHTML = quotes[randomIndex].replace(/\n/g, '<br>');
+
+            const listContainer = document.getElementById('receiptList');
+            listContainer.innerHTML = '';
+            
+            let count = 0;
+
+            for (let i = 1; i <= 12; i++) {
+                const topicElem = document.getElementById(`topic${i}`);
+                const descElem = document.getElementById(`desc${i}`);
+                
+                if (topicElem && descElem) {
+                    const topic = topicElem.value;
+                    const desc = descElem.value;
+
+                    if (topic !== "" && desc.trim() !== "") {
+                        count++;
+                        const row = document.createElement('div');
+                        row.className = "flex justify-between items-start mb-2";
+                        row.innerHTML = `
+                            <div class="w-[45%] text-[11px] font-bold text-gray-800 pt-0.5 leading-tight tracking-tight break-keep">${topic}</div>
+                            <div class="w-[55%] text-right text-sm leading-snug font-medium break-keep text-black font-receipt">${desc}</div>
+                        `;
+                        listContainer.appendChild(row);
+                    }
+                }
+            }
+            document.getElementById('totalCount').innerText = count;
+
+            if (count === 0) {
+                listContainer.innerHTML = `
+                    <div class="text-center text-gray-400 py-20 text-xs">
+                        <i class="fas fa-arrow-left mb-2"></i><br>
+                        기록된 내용이 없습니다.<br>'수정하기'를 눌러 내용을 입력해주세요.
+                    </div>
+                `;
+            }
+
+            // 바코드 생성 (안정성 확보)
+            try {
+                JsBarcode("#barcodeSVG", "HAPPY NEW YEAR", {
+                    format: "CODE128",
+                    lineColor: "#374151",
+                    width: 1.5,
+                    height: 40,
+                    displayValue: false,
+                    margin: 0
+                });
+            } catch (e) {
+                console.error("바코드 생성 실패:", e);
+            }
+        }
+
+        function downloadImage() {
+            const captureArea = document.getElementById('captureArea');
+            captureArea.classList.remove('print-animation');
+            
+            html2canvas(captureArea, { scale: 3, backgroundColor: null, useCORS: true }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `${THIS_YEAR}_기억영수증.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+        }
+
+        // --- ★ 수정됨: 링크 공유 기능 (단축 URL 적용) ---
+        async function shareLink() {
+            const shareUrl = "https://bit.ly/yearbill"; // 요청하신 단축 URL
+
+            const shareData = {
+                title: '연말 기억 영수증',
+                text: `${THIS_YEAR}년 추억을 영수증으로 정리해보세요! 🧾`,
+                url: shareUrl 
+            };
+
+            // 모바일 네이티브 공유 (카카오톡, 문자 등) 지원 시
+            if (navigator.share) {
+                try {
+                    await navigator.share(shareData);
+                } catch (err) {
+                    console.log('공유 취소됨');
+                }
+            } else {
+                // PC 등 지원하지 않을 경우 클립보드 복사
+                try {
+                    // 구형 브라우저/iframe 호환성을 위해 execCommand 사용 고려
+                    const textArea = document.createElement("textarea");
+                    textArea.value = shareUrl;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    alert("링크가 클립보드에 복사되었습니다! \n친구들에게 붙여넣기(Ctrl+V)해서 알려주세요.");
+                } catch (err) {
+                    alert("링크 복사에 실패했습니다. 주소창을 복사해주세요.");
+                }
+            }
+        }
+    </script>
+</body>
+</html>
